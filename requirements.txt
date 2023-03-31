@@ -1,11 +1,3 @@
-os
-random
-asyncio
-yt_dlp
 discord.py
-io
-openai
-requests
-from discord.ext import commands
-from replit import db
-from collections import defaultdict
+youtube-dl
+PyNaCl
