@@ -1,4 +1,4 @@
 discord.py
-youtube-dl
 PyNaCl
 yt_dlp
+openai
