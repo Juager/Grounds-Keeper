@@ -19,11 +19,8 @@ import random
 import asyncio
 import yt_dlp
 import discord
-import io
 import openai
-import requests
 from discord.ext import commands
-from replit import db
 from collections import defaultdict
 
 #--#
