@@ -1,0 +1,10 @@
+LOG UPDATES HERE | Will dump this text when uploaded to GitHub
+
+3/31/23 | Juager | 
+  - Added a name search function for YT api. 
+  - Added a !help command that is organized by command
+
+4/2/23
+  - Added a !purge command
+    -Added to audit log
+  - Added a !choose_roles command

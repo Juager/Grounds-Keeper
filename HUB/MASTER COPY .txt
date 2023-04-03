@@ -1,4 +1,15 @@
-THIS CODE WORKS | 3/30/23 | DO NOT DELETE
+#--#
+
+#Command Overview
+
+#Audio
+# !play, !stop, !random_song, !q, !skip
+
+#Administration
+# !gulag, !purge
+
+#Fun
+# !dog, !dinosaur
 
 #--#
 
@@ -8,12 +19,10 @@ import random
 import asyncio
 import yt_dlp
 import discord
-import io
 import openai
-import requests
 from discord.ext import commands
-from replit import db
 from collections import defaultdict
+from discord.ui import View, Select
 
 #--#
 
@@ -34,7 +43,7 @@ intents.members = True
 
 #--#
 
-#Function to log command usage
+#Audit Log Function
 async def log_command_usage(ctx):
     channel_id = 1091195885213470760 # Replace with the ID of the channel where you want to log command usage
     channel = bot.get_channel(channel_id)
@@ -42,6 +51,8 @@ async def log_command_usage(ctx):
 
 #Prefix Defined
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+bot.remove_command('help')
 
 #--#
 
@@ -54,32 +65,80 @@ queues = defaultdict(list)
   
 #--#
 
+#Command - !help
+@bot.command()
+async def help(ctx):
+    embed = discord.Embed(
+        title="Help",
+        description="Here are the commands for the bot, sorted by category.",
+        color=discord.Color.blue()
+    )
+
+    # Music commands
+    music_commands = (
+        ("!play <YouTube URL or search query>", "Play a song from a YouTube URL or search for a song using a query."),
+        ("!stop", "Stop playing the current song and disconnect from the voice channel."),
+        ("!skip", "Skip the current song."),
+        ("!q", "Show the current queue of songs."),
+        ("!random_song", "Play a random song from a predefined YouTube playlist."),
+    )
+
+    music_description = "\n".join([f"{cmd} - {desc}" for cmd, desc in music_commands])
+    embed.add_field(name="Music", value=music_description, inline=False)
+
+    # Administration commands
+    administration_commands = (
+        ("!gulag <@user>", "Remove all roles from a user and give them a specified role (requires administrator permission)."),
+        ("!purge <# of msgs>", "Purges a specified number of messages up to 99. Will automatically add 1 to your number to delete the prompt. (requires administrator permission)."),
+        ("!choose_role <Title> <Body of Embed> <Role 1 ID> <Role 2 ID>...", "This will create an Embed with the information provided. Members will be able to choose roles specified through a dropdown menu. The Title and Body will need to be surrounded by double quotation marks to mark a string.")
+    )
+
+    administration_description = "\n".join([f"{cmd} - {desc}" for cmd, desc in administration_commands])
+    embed.add_field(name="Administration", value=administration_description, inline=False)
+
+    # Fun commands
+    fun_commands = (
+        ("!dog", "Get a fun fact about dogs."),
+        ("!dinosaur", "Get a fun fact about dinosaurs."),
+    )
+
+    fun_description = "\n".join([f"{cmd} - {desc}" for cmd, desc in fun_commands])
+    embed.add_field(name="Fun", value=fun_description, inline=False)
+
+    await ctx.send(embed=embed)
+
+
+#--#
+#AUDIO COMMANDS
+#--#
+
 #Command - !Play
 @bot.command()
-async def play(ctx, url, queue=False):
-    voice_channel = ctx.author.voice.channel
-    if voice_channel is None:
+async def play(ctx, *, search: str, queue=False):
+    if ctx.author.voice is None:
         await ctx.send("You need to be in a voice channel to use this command.")
         return
+
+    voice_channel = ctx.author.voice.channel
 
     permissions = voice_channel.permissions_for(ctx.me)
     if not permissions.connect or not permissions.speak:
         await ctx.send("I don't have permission to join or speak in that voice channel.")
         return
-  
+
     voice_client = ctx.guild.voice_client
     if voice_client is None:
         voice_client = await voice_channel.connect()
 
-    ydl_opts = {'format': 'bestaudio/best', 'noplaylist': True}
+    ydl_opts = {'format': 'bestaudio/best', 'noplaylist': True, 'default_search': 'ytsearch'}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+        info = ydl.extract_info(search, download=False)
         if info is None:
-            await ctx.send('Invalid URL provided, please try again!')
+            await ctx.send('Invalid search query provided, please try again!')
 
         song = {
-            'title': info['title'],
-            'url': info['url'],
+            'title': info['entries'][0]['title'],
+            'url': info['entries'][0]['url'],
         }
 
         if not queue:
@@ -181,9 +240,63 @@ async def random_song(ctx):
         await play(ctx, video_url)
 
 #--#
+#ADMINISTRATOR COMMANDS
+#--#
 
+# Command - !choose_role
+class RoleSelector(Select):
+    def __init__(self, roles):
+        options = [
+            discord.SelectOption(label=role.name, value=role.id)
+            for role in roles
+        ]
+        super().__init__(placeholder="Select a role", min_values=1, max_values=len(roles), options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        member = interaction.user if isinstance(interaction.user, discord.Member) else guild.get_member(interaction.user.id)
+        
+        updated_roles = []
+        for role_id in self.values:
+            role = discord.utils.get(guild.roles, id=int(role_id))
+            updated_roles.append(role)
+        
+        for role in updated_roles:
+            if role not in member.roles:
+                await member.add_roles(role)
+            else:
+                await member.remove_roles(role)
+        
+        await interaction.response.send_message(f"Updated your roles: {', '.join([role.name for role in updated_roles])}", ephemeral=True)
+
+class RoleView(View):
+    def __init__(self):
+        super().__init__()
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def choose_role(ctx, title: str, body: str, *role_ids: int):
+    print("Choose role command executed") 
+    roles = [ctx.guild.get_role(role_id) for role_id in role_ids]
+
+    selector = RoleSelector(roles) 
+
+    view = RoleView()
+    view.add_item(selector)
+
+    embed = discord.Embed(title=title, description=body, color=discord.Color.blurple())
+
+    await ctx.send(embed=embed, view=view)
+
+@choose_role.error
+async def choose_role_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("Sorry, you don't have permission to use this command.")
+
+#--#
 #Command - !Gulag
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def gulag(ctx, user: discord.Member):
     await log_command_usage(ctx)
     # Remove all roles from the user
@@ -212,6 +325,35 @@ async def gulag(ctx, user: discord.Member):
 
     await channel.send(f"{user.mention} has been given the {role.name} role and had the following roles taken away: {roles_str}")
 
+@gulag.error
+async def gulag_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("You don't have the necessary permissions to use this command.")
+
+#--#
+
+#Command - !Purge
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def purge(ctx, amount: int):
+    await log_command_usage(ctx)
+    if amount > 99:  # Limit the purge amount to 99 messages at a time (100 including the command message)
+        await ctx.send("You can only purge up to 99 messages at a time.")
+        return
+
+    await ctx.channel.purge(limit=amount + 1)  # Add 1 to also delete the command message
+
+@purge.error
+async def purge_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("You don't have the necessary permissions to use this command.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("Please specify the number of messages to delete.")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("Invalid input. Please enter a number.")
+
+#--#
+#FUN COMMANDS
 #--#
 
 #Command - Fun Facts | !dog & !dinosaur
@@ -231,25 +373,26 @@ async def get_chat_gpt_response(prompt):
 
 @bot.command()
 async def dog(ctx):
-    prompt = "Tell me a fun fact about dogs."
+    prompt = "What is an obscure dog fact that very little people know? Don't be repeditive."
     response = await get_chat_gpt_response(prompt)
     await ctx.send(response)
 
 @bot.command()
 async def dinosaur(ctx):
-    prompt = "Tell me a fun fact about dinosaurs."
+    prompt = "What is an obscure dinosaur fact that very little people know? Don't be repeditive."
     response = await get_chat_gpt_response(prompt)
     await ctx.send(response)
 
 #--#
-      
-#Play Error
-@play.error
-async def play_error(ctx, error):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("Please provide a valid YouTube URL")
+
+#Error Checks
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    raise error
 
 #--#
-
 #Login
 bot.run(os.environ['GK_Token'])
